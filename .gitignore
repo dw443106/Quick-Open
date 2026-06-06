@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Build products
+DerivedData/
+build/
+*.app
+*.dSYM
+*.xcarchive
+
+# Local archives
+Archived Builds/
+Quick Open/Quick Open 20*/
+

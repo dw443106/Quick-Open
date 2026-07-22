@@ -13,10 +13,8 @@ struct RiceWindowView: View {
     @ObservedObject var controller: RiceWindowController
     
     @State private var isEditing = false
-    
-    let columns = [
-        GridItem(.adaptive(minimum: 80, maximum: 80), spacing: 12)
-    ]
+    @State private var adaptiveIconsEnabled = QuickOpenWindowBehaviorSettings.adaptiveIconsEnabled
+    @State private var selectedAnimalTriggerStyle = "default"
     
     let presetColors = [
         "#FF5E57", "#FF6B6B", "#FFA502", "#FFDA79",
@@ -106,6 +104,33 @@ struct RiceWindowView: View {
                             }
                         }
                     }
+                    
+                    Divider().opacity(0.35)
+                    
+                    HStack(spacing: 8) {
+                        Image(systemName: "pawprint.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("隐藏宠物")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Image(QuickOpenPetOption.assetName(for: effectiveAnimalTriggerStyle))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 32, height: 32)
+                        Picker("", selection: $selectedAnimalTriggerStyle) {
+                            Text("跟随全局").tag("default")
+                            ForEach(QuickOpenPetOption.all) { option in
+                                Text(option.title).tag(option.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 110)
+                        .onChange(of: selectedAnimalTriggerStyle) {
+                            commitAnimalTriggerStyle()
+                        }
+                    }
                 }
                 .padding(12)
                 .background(.ultraThinMaterial)
@@ -140,22 +165,35 @@ struct RiceWindowView: View {
             Divider().opacity(0.3)
             
             // 图标网格
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(config.appPaths, id: \.self) { path in
-                        AppIconItem(path: path) {
-                            let url = URL(fileURLWithPath: path)
-                            let resolvedURL = (try? URL(resolvingAliasFileAt: url)) ?? url
-                            NSWorkspace.shared.open(resolvedURL)
-                        }
-                        .contextMenu {
-                            Button("移出窗口") {
-                                controller.removeApp(path: path)
+            GeometryReader { geometry in
+                let layout = AdaptiveIconGridLayout.make(
+                    availableSize: geometry.size,
+                    itemCount: config.appPaths.count,
+                    adaptive: adaptiveIconsEnabled
+                )
+                
+                ScrollView {
+                    LazyVGrid(columns: layout.columns, spacing: layout.spacing) {
+                        ForEach(config.appPaths, id: \.self) { path in
+                            AppIconItem(
+                                path: path,
+                                itemWidth: layout.itemWidth,
+                                iconSize: layout.iconSize,
+                                fontSize: layout.fontSize
+                            ) {
+                                let url = URL(fileURLWithPath: path)
+                                let resolvedURL = (try? URL(resolvingAliasFileAt: url)) ?? url
+                                NSWorkspace.shared.open(resolvedURL)
+                            }
+                            .contextMenu {
+                                Button("移出窗口") {
+                                    controller.removeApp(path: path)
+                                }
                             }
                         }
                     }
+                    .padding(layout.padding)
                 }
-                .padding(12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -165,6 +203,26 @@ struct RiceWindowView: View {
         }
         .cornerRadius(12)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.15), lineWidth: 1))
+        .onAppear {
+            selectedAnimalTriggerStyle = controller.config.animalTriggerStyle ?? "default"
+        }
+        .onReceive(NotificationCenter.default.publisher(for: QuickOpenWindowBehaviorSettings.changedNotification)) { _ in
+            adaptiveIconsEnabled = QuickOpenWindowBehaviorSettings.adaptiveIconsEnabled
+        }
+    }
+    
+    private var effectiveAnimalTriggerStyle: String {
+        selectedAnimalTriggerStyle == "default"
+        ? QuickOpenWindowBehaviorSettings.animalTriggerStyle
+        : selectedAnimalTriggerStyle
+    }
+    
+    private func commitAnimalTriggerStyle() {
+        if selectedAnimalTriggerStyle == "default" {
+            controller.updateAnimalTriggerStyle(nil)
+        } else {
+            controller.updateAnimalTriggerStyle(selectedAnimalTriggerStyle)
+        }
     }
     
     private func handleDrop(providers: [NSItemProvider]) {
@@ -180,24 +238,102 @@ struct RiceWindowView: View {
     }
 }
 
+private struct AdaptiveIconGridLayout {
+    let columns: [GridItem]
+    let itemWidth: CGFloat
+    let iconSize: CGFloat
+    let fontSize: CGFloat
+    let spacing: CGFloat
+    let padding: CGFloat
+    
+    static func make(availableSize: CGSize, itemCount: Int, adaptive: Bool) -> AdaptiveIconGridLayout {
+        guard adaptive else {
+            return fixed(availableWidth: availableSize.width)
+        }
+        
+        let padding: CGFloat = availableSize.width < 170 ? 6 : 8
+        let spacing: CGFloat = availableSize.width < 170 ? 5 : 6
+        let usableWidth = max(availableSize.width - padding * 2, 44)
+        let usableHeight = max(availableSize.height - padding * 2, 44)
+        
+        let minimumItemWidth: CGFloat = 44
+        let maximumColumns = max(1, Int((usableWidth + spacing) / (minimumItemWidth + spacing)))
+        let cappedColumns = max(1, min(maximumColumns, max(itemCount, 1)))
+        var bestColumns = 1
+        var bestItemWidth = usableWidth
+        var bestIconSize: CGFloat = 26
+        var bestFontSize: CGFloat = 9
+        var bestScore: CGFloat = -1
+        
+        for columns in 1...cappedColumns {
+            let rows = max(1, Int(ceil(Double(max(itemCount, 1)) / Double(columns))))
+            let itemWidth = floor((usableWidth - CGFloat(columns - 1) * spacing) / CGFloat(columns))
+            let rowHeight = floor((usableHeight - CGFloat(rows - 1) * spacing) / CGFloat(rows))
+            let heightConstrainedIcon = max(24, (rowHeight - 18) * 0.86)
+            let widthConstrainedIcon = itemWidth * 0.72
+            let iconSize = min(58, max(24, floor(min(widthConstrainedIcon, heightConstrainedIcon))))
+            let fontSize = min(12, max(9, floor(min(itemWidth * 0.16, max(rowHeight * 0.16, 9)))))
+            let fitBonus: CGFloat = rowHeight >= iconSize + fontSize + 6 ? 20 : 0
+            let score = iconSize * 10 + fitBonus - CGFloat(rows) * 0.2
+            
+            if score > bestScore {
+                bestScore = score
+                bestColumns = columns
+                bestItemWidth = itemWidth
+                bestIconSize = iconSize
+                bestFontSize = fontSize
+            }
+        }
+        
+        return AdaptiveIconGridLayout(
+            columns: Array(repeating: GridItem(.fixed(bestItemWidth), spacing: spacing), count: bestColumns),
+            itemWidth: bestItemWidth,
+            iconSize: bestIconSize,
+            fontSize: bestFontSize,
+            spacing: spacing,
+            padding: padding
+        )
+    }
+    
+    private static func fixed(availableWidth: CGFloat) -> AdaptiveIconGridLayout {
+        let spacing: CGFloat = 6
+        let padding: CGFloat = 8
+        let usableWidth = max(availableWidth - padding * 2, 80)
+        let columnsCount = max(1, Int((usableWidth + spacing) / (80 + spacing)))
+        return AdaptiveIconGridLayout(
+            columns: Array(repeating: GridItem(.fixed(80), spacing: spacing), count: columnsCount),
+            itemWidth: 80,
+            iconSize: 56,
+            fontSize: 12,
+            spacing: spacing,
+            padding: padding
+        )
+    }
+}
+
 // 单个App图标组件
 struct AppIconItem: View {
     let path: String
+    let itemWidth: CGFloat
+    let iconSize: CGFloat
+    let fontSize: CGFloat
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: path))
                     .resizable()
-                    .frame(width: 56, height: 56)
+                    .frame(width: iconSize, height: iconSize)
                 
                 Text(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
-                    .font(.system(size: 12))
+                    .font(.system(size: fontSize))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .foregroundColor(.primary)
+                    .frame(width: itemWidth)
             }
-            .frame(width: 80)
+            .frame(width: itemWidth)
         }
         .buttonStyle(.plain)
     }

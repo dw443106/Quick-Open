@@ -12,6 +12,8 @@ import AppKit
 struct WindowManagerView: View {
     @ObservedObject var windowStore: RiceWindowStore
     let onClose: () -> Void
+    let onCreateShortcutWindow: () -> Void
+    let onCreateAIDashboardWindow: () -> Void
     let onRemoveController: (RiceWindowController) -> Void
     
     private var controllers: [RiceWindowController] {
@@ -30,6 +32,20 @@ struct WindowManagerView: View {
                 Text("共 \(controllers.count) 个窗口")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                Button {
+                    onCreateShortcutWindow()
+                } label: {
+                    Label("快捷窗口", systemImage: "plus.square")
+                }
+                .controlSize(.small)
+                
+                Button {
+                    onCreateAIDashboardWindow()
+                } label: {
+                    Label("AI 仪表盘", systemImage: "sparkles")
+                }
+                .controlSize(.small)
+                
                 Button("关闭") {
                     onClose()
                 }
@@ -48,7 +64,7 @@ struct WindowManagerView: View {
                         .foregroundColor(.secondary.opacity(0.4))
                     Text("暂无窗口")
                         .foregroundColor(.secondary)
-                    Text("点击菜单栏「➕ 新建窗口」创建")
+                    Text("点击上方按钮创建快捷窗口或 AI 仪表盘")
                         .font(.caption)
                         .foregroundColor(.secondary.opacity(0.6))
                     Spacer()
@@ -89,6 +105,7 @@ struct WindowConfigRow: View {
     // 用本地状态编辑，提交时才写入 controller
     @State private var editTitle: String = ""
     @State private var editOpacity: Double = 0.85
+    @State private var selectedAnimalTriggerStyle: String = "default"
     
     let presetColors = [
         "#FF5E57", "#FF6B6B", "#FFA502", "#FFDA79",
@@ -129,7 +146,7 @@ struct WindowConfigRow: View {
                     .frame(width: 80)
                 
                 // App 数量
-                Text("\(controller.config.appPaths.count) 个应用")
+                Text(controller.config.windowKind == RiceWindowKind.aiDashboard ? "AI 仪表盘" : "\(controller.config.appPaths.count) 个应用")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
@@ -254,6 +271,29 @@ struct WindowConfigRow: View {
                         }
                         .controlSize(.small)
                     }
+                    
+                    // 贴边隐藏小宠物
+                    Divider()
+                    HStack(spacing: 8) {
+                        Image(systemName: "pawprint.fill").foregroundColor(.secondary).font(.system(size: 10))
+                        Text("隐藏宠物").font(.caption).foregroundColor(.secondary)
+                        Spacer()
+                        Image(QuickOpenPetOption.assetName(for: effectiveAnimalTriggerStyle))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 34, height: 34)
+                        Picker("", selection: $selectedAnimalTriggerStyle) {
+                            Text("跟随全局").tag("default")
+                            ForEach(QuickOpenPetOption.all) { option in
+                                Text(option.title).tag(option.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
+                        .onChange(of: selectedAnimalTriggerStyle) {
+                            commitAnimalTriggerStyle()
+                        }
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 10)
@@ -280,6 +320,7 @@ struct WindowConfigRow: View {
         editOpacity = controller.config.opacity
         pickerColor = Color(hex: controller.config.colorHex)
         titleColorPicker = Color(hex: controller.config.titleColorHex)
+        selectedAnimalTriggerStyle = controller.config.animalTriggerStyle ?? "default"
     }
     
     private func commitTitle() {
@@ -293,6 +334,20 @@ struct WindowConfigRow: View {
     private func commitColor(_ hex: String) {
         pickerColor = Color(hex: hex)
         controller.updateColor(hex: hex)
+    }
+    
+    private var effectiveAnimalTriggerStyle: String {
+        selectedAnimalTriggerStyle == "default"
+        ? QuickOpenWindowBehaviorSettings.animalTriggerStyle
+        : selectedAnimalTriggerStyle
+    }
+    
+    private func commitAnimalTriggerStyle() {
+        if selectedAnimalTriggerStyle == "default" {
+            controller.updateAnimalTriggerStyle(nil)
+        } else {
+            controller.updateAnimalTriggerStyle(selectedAnimalTriggerStyle)
+        }
     }
     
     private func confirmDelete() {
@@ -311,7 +366,12 @@ struct WindowConfigRow: View {
 // MARK: - 窗口管理器的 NSWindowController
 class WindowManagerController: NSWindowController {
     
-    init(windowStore: RiceWindowStore, onRemoveController: @escaping (RiceWindowController) -> Void) {
+    init(
+        windowStore: RiceWindowStore,
+        onCreateShortcutWindow: @escaping () -> Void,
+        onCreateAIDashboardWindow: @escaping () -> Void,
+        onRemoveController: @escaping (RiceWindowController) -> Void
+    ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -325,6 +385,8 @@ class WindowManagerController: NSWindowController {
         let rootView = WindowManagerView(
             windowStore: windowStore,
             onClose: { window.close() },
+            onCreateShortcutWindow: onCreateShortcutWindow,
+            onCreateAIDashboardWindow: onCreateAIDashboardWindow,
             onRemoveController: onRemoveController
         )
         window.contentView = NSHostingView(rootView: rootView)

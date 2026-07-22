@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "PeekingKitten.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

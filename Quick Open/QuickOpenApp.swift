@@ -128,6 +128,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let controller = WindowManagerController(
             windowStore: windowStore,
+            onCreateShortcutWindow: { [weak self] in
+                self?.menuCreateNewWindow()
+            },
+            onCreateAIDashboardWindow: { [weak self] in
+                self?.createAIDashboardWindow()
+            },
             onRemoveController: { [weak self] removedController in
                 guard let self = self else { return }
                 self.windowStore.controllers.removeAll { $0 === removedController }
@@ -160,6 +166,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
         windowStore.controllers.append(controller)
         scheduleSaveCurrentConfigs()
+    }
+    
+    func createAIDashboardWindow() {
+        let newConfig = RiceWindowConfig(
+            title: "AI 仪表盘",
+            x: 460, y: 420,
+            width: 300, height: 360,
+            colorHex: "#20262E",
+            titleColorHex: "#FFFFFF",
+            opacity: 0.9,
+            appPaths: [],
+            windowKind: RiceWindowKind.aiDashboard
+        )
+        createNewRiceWindow(with: newConfig)
     }
 
     @objc func quitApp() {

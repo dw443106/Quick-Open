@@ -219,10 +219,68 @@ enum WindowDockEdge {
     case bottom
 }
 
+private enum PetImageCache {
+    private static var croppedImages: [String: NSImage] = [:]
+    
+    static func image(named name: String) -> NSImage? {
+        if let image = croppedImages[name] {
+            return image
+        }
+        
+        guard let sourceImage = NSImage(named: name),
+              let cgImage = sourceImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return NSImage(named: name)
+        }
+        
+        let rep = NSBitmapImageRep(cgImage: cgImage)
+        var minX = rep.pixelsWide
+        var minY = rep.pixelsHigh
+        var maxX = 0
+        var maxY = 0
+        
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.04 else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+        
+        guard minX <= maxX, minY <= maxY else {
+            croppedImages[name] = sourceImage
+            return sourceImage
+        }
+        
+        let padding = 2
+        let cropX = max(minX - padding, 0)
+        let cropY = max(minY - padding, 0)
+        let cropMaxX = min(maxX + padding, rep.pixelsWide - 1)
+        let cropMaxY = min(maxY + padding, rep.pixelsHigh - 1)
+        let cropRect = CGRect(
+            x: cropX,
+            y: cropY,
+            width: cropMaxX - cropX + 1,
+            height: cropMaxY - cropY + 1
+        )
+        
+        guard let croppedCGImage = cgImage.cropping(to: cropRect) else {
+            croppedImages[name] = sourceImage
+            return sourceImage
+        }
+        
+        let croppedImage = NSImage(cgImage: croppedCGImage, size: NSSize(width: cropRect.width, height: cropRect.height))
+        croppedImages[name] = croppedImage
+        return croppedImage
+    }
+}
+
 private struct AnimalTriggerView: View {
     let style: String
     let size: CGFloat
     let edge: WindowDockEdge
+    let windowTitle: String
     let onHover: () -> Void
     
     private var imageName: String {
@@ -230,30 +288,39 @@ private struct AnimalTriggerView: View {
     }
     
     private var panelSize: CGSize {
-        CGSize(width: size * 0.72, height: size * 1.05)
+        switch edge {
+        case .left, .right:
+            return CGSize(width: size * 1.08, height: size * 1.08)
+        case .top, .bottom:
+            return CGSize(width: size * 1.25, height: size * 1.22)
+        case .none:
+            return CGSize(width: size * 0.72, height: size * 1.05)
+        }
     }
     
-    private var imageXOffset: CGFloat {
-        switch edge {
-        case .right:
-            return size * 0.13
-        case .left:
-            return -size * 0.13
-        case .none:
-            return 0
-        default:
-            return 0
-        }
+    private var petSize: CGSize {
+        CGSize(width: size * 0.84, height: size * 1.05)
+    }
+    
+    private var displayTitle: String {
+        let trimmed = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "窗口" : trimmed
     }
     
     var body: some View {
         ZStack {
-            Image(imageName)
-                .resizable()
-                .scaledToFill()
-                .frame(width: panelSize.width, height: panelSize.height)
-                .offset(x: imageXOffset)
-                .scaleEffect(x: edge == .right ? -1 : 1, y: 1, anchor: .center)
+            switch edge {
+            case .right:
+                horizontalLayout(isRightEdge: true)
+            case .left:
+                horizontalLayout(isRightEdge: false)
+            case .top:
+                verticalLayout(signBelowPet: true)
+            case .bottom:
+                verticalLayout(signBelowPet: false)
+            case .none:
+                petImage
+            }
         }
         .frame(width: panelSize.width, height: panelSize.height)
         .clipped()
@@ -262,6 +329,94 @@ private struct AnimalTriggerView: View {
             if hovering {
                 onHover()
             }
+        }
+    }
+    
+    private func horizontalLayout(isRightEdge: Bool) -> some View {
+        ZStack(alignment: isRightEdge ? .trailing : .leading) {
+            signView
+                .frame(width: size * 0.60, height: size * 0.27)
+                .offset(
+                    x: isRightEdge ? -size * 0.26 : size * 0.26,
+                    y: size * 0.36
+                )
+                .zIndex(0)
+            
+            petImage
+                .frame(width: petSize.width, height: petSize.height)
+                .offset(x: isRightEdge ? size * 0.11 : -size * 0.11)
+                .scaleEffect(x: isRightEdge ? -1 : 1, y: 1, anchor: .center)
+                .zIndex(1)
+        }
+        .frame(width: panelSize.width, height: panelSize.height)
+    }
+    
+    private func verticalLayout(signBelowPet: Bool) -> some View {
+        ZStack {
+            petImage
+                .frame(width: petSize.width, height: petSize.height)
+                .offset(y: signBelowPet ? -size * 0.08 : size * 0.08)
+                .zIndex(1)
+            
+            signView
+                .frame(width: size * 0.78, height: size * 0.30)
+                .offset(y: signBelowPet ? size * 0.42 : -size * 0.42)
+                .zIndex(0)
+        }
+        .frame(width: panelSize.width, height: panelSize.height)
+    }
+    
+    private var petImage: some View {
+        Group {
+            if let image = PetImageCache.image(named: imageName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(imageName)
+                    .resizable()
+                    .scaledToFit()
+            }
+        }
+    }
+    
+    private var signView: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.055, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.96, green: 0.70, blue: 0.38),
+                            Color(red: 0.82, green: 0.48, blue: 0.20)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: size * 0.055, style: .continuous)
+                        .stroke(Color(red: 0.55, green: 0.28, blue: 0.10), lineWidth: max(1, size * 0.018))
+                )
+                .shadow(color: .black.opacity(0.16), radius: size * 0.025, x: 0, y: size * 0.018)
+            
+            VStack(spacing: size * 0.045) {
+                Capsule()
+                    .fill(Color(red: 0.72, green: 0.38, blue: 0.14).opacity(0.45))
+                    .frame(height: max(1, size * 0.012))
+                Capsule()
+                    .fill(Color(red: 0.72, green: 0.38, blue: 0.14).opacity(0.32))
+                    .frame(height: max(1, size * 0.01))
+            }
+            .padding(.horizontal, size * 0.075)
+            
+            Text(displayTitle)
+                .font(.system(size: size * 0.15, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(red: 0.22, green: 0.12, blue: 0.05))
+                .lineLimit(1)
+                .minimumScaleFactor(0.46)
+                .allowsTightening(true)
+                .padding(.horizontal, size * 0.08)
+                .shadow(color: .white.opacity(0.35), radius: 0, x: 0, y: 1)
         }
     }
 }
@@ -292,6 +447,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
     private var dockedEdge: WindowDockEdge = .none
     private var expandedFrameBeforeHide: NSRect?
     private var isEdgeHidden = false
+    private var isEdgeTransitioning = false
     private var isMouseInside = false
     private var pendingHideWorkItem: DispatchWorkItem?
     private var animalTriggerPanel: NSPanel?
@@ -366,6 +522,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
     }
     
     @objc private func windowDidMove() {
+        guard !isEdgeTransitioning else { return }
         if !isApplyingSnap && !isLiveResizing && QuickOpenWindowBehaviorSettings.windowSnappingEnabled {
             applySnappingIfNeeded()
         }
@@ -375,6 +532,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
     }
     
     @objc private func windowDidResize() {
+        guard !isEdgeTransitioning else { return }
         refreshDockedEdge()
         scheduleAutoHideIfNeeded()
         updateConfigFromWindow()
@@ -393,6 +551,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
     }
     
     @objc private func windowBehaviorSettingsChanged() {
+        guard !isEdgeTransitioning else { return }
         updateAnimalTriggerVisibility()
         if !QuickOpenWindowBehaviorSettings.edgeAutoHideEnabled {
             showFromEdgeIfNeeded()
@@ -537,6 +696,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
               dockedEdge != .none,
               QuickOpenWindowBehaviorSettings.isAutoHideEdgeEnabled(dockedEdge),
               !isEdgeHidden,
+              !isEdgeTransitioning,
               !isMouseInside else {
             return
         }
@@ -553,6 +713,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
               let window = window,
               dockedEdge != .none,
               QuickOpenWindowBehaviorSettings.isAutoHideEdgeEnabled(dockedEdge),
+              !isEdgeTransitioning,
               let visibleFrame = activeScreen(for: window.frame)?.visibleFrame else {
             return
         }
@@ -562,9 +723,17 @@ class RiceWindowController: NSWindowController, ObservableObject {
         let hiddenFrame = hiddenFrame(for: expandedFrameBeforeHide ?? currentFrame, visibleFrame: visibleFrame, edge: dockedEdge)
         
         guard hiddenFrame.origin != currentFrame.origin else { return }
+        pendingHideWorkItem?.cancel()
+        isEdgeTransitioning = true
         isEdgeHidden = true
-        setWindowFrame(hiddenFrame, animated: true)
-        showAnimalTrigger(for: hiddenFrame, visibleFrame: visibleFrame, edge: dockedEdge)
+        hideAnimalTrigger()
+        setWindowFrame(hiddenFrame, animated: true) { [weak self] in
+            guard let self = self else { return }
+            self.isEdgeTransitioning = false
+            if self.isEdgeHidden {
+                self.showAnimalTrigger(for: hiddenFrame, visibleFrame: visibleFrame, edge: self.dockedEdge)
+            }
+        }
     }
     
     private func showFromEdgeIfNeeded() {
@@ -573,12 +742,20 @@ class RiceWindowController: NSWindowController, ObservableObject {
             isEdgeHidden = false
             return
         }
+        guard isEdgeHidden, !isEdgeTransitioning else { return }
         
         pendingHideWorkItem?.cancel()
-        isEdgeHidden = false
+        isEdgeTransitioning = true
         hideAnimalTrigger()
-        setWindowFrame(expandedFrame, animated: true)
         window.makeKeyAndOrderFront(nil)
+        setWindowFrame(expandedFrame, animated: true) { [weak self] in
+            guard let self = self else { return }
+            self.isEdgeHidden = false
+            self.isEdgeTransitioning = false
+            self.refreshDockedEdge()
+            self.updateConfigFromWindow()
+            self.scheduleAutoHideIfNeeded()
+        }
     }
     
     private func expandedFrame(for frame: NSRect, visibleFrame: NSRect, edge: WindowDockEdge) -> NSRect {
@@ -615,22 +792,24 @@ class RiceWindowController: NSWindowController, ObservableObject {
         return hiddenFrame
     }
     
-    private func setWindowFrame(_ frame: NSRect, animated: Bool) {
+    private func setWindowFrame(_ frame: NSRect, animated: Bool, completion: (() -> Void)? = nil) {
         guard let window = window else { return }
         isApplyingSnap = true
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
+                context.duration = 0.24
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 window.animator().setFrame(frame, display: true)
             } completionHandler: { [weak self] in
                 self?.isApplyingSnap = false
                 self?.updateConfigFromWindow()
+                completion?()
             }
         } else {
             window.setFrame(frame, display: true, animate: false)
             isApplyingSnap = false
             updateConfigFromWindow()
+            completion?()
         }
     }
     
@@ -655,6 +834,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
                 style: config.animalTriggerStyle ?? QuickOpenWindowBehaviorSettings.animalTriggerStyle,
                 size: size,
                 edge: edge,
+                windowTitle: config.title,
                 onHover: { [weak self] in
                     self?.showFromEdgeIfNeeded()
                 }
@@ -671,6 +851,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
     
     private func updateAnimalTriggerVisibility() {
         guard isEdgeHidden,
+              !isEdgeTransitioning,
               let window = window,
               let visibleFrame = activeScreen(for: window.frame)?.visibleFrame else {
             hideAnimalTrigger()
@@ -697,7 +878,14 @@ class RiceWindowController: NSWindowController, ObservableObject {
     }
     
     private func animalTriggerPanelSize(size: CGFloat, edge: WindowDockEdge) -> CGSize {
-        CGSize(width: size * 0.72, height: size * 1.05)
+        switch edge {
+        case .left, .right:
+            return CGSize(width: size * 1.08, height: size * 1.08)
+        case .top, .bottom:
+            return CGSize(width: size * 1.25, height: size * 1.22)
+        case .none:
+            return CGSize(width: size * 0.72, height: size * 1.05)
+        }
     }
     
     private func animalTriggerFrame(hiddenFrame: NSRect, visibleFrame: NSRect, edge: WindowDockEdge, triggerSize: CGSize) -> NSRect {
@@ -863,6 +1051,7 @@ class RiceWindowController: NSWindowController, ObservableObject {
         newConfig.title = title
         config = newConfig
         window?.title = title
+        updateAnimalTriggerVisibility()
     }
     
     func updateColor(hex: String) {

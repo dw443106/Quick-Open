@@ -13,6 +13,10 @@ private let kLaunchAtLoginKey = "LaunchAtLogin"
 
 /// 设置窗口视图
 struct SettingsView: View {
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+    }
+
     @State private var launchAtLogin: Bool = {
         // 读取保存的开机启动设置
         if #available(macOS 13.0, *) {
@@ -57,7 +61,7 @@ struct SettingsView: View {
             }
             
             // 底部信息
-            Text("Quick Open v1.0")
+            Text("Quick Open v\(appVersion)")
                 .font(.caption)
                 .foregroundColor(.secondary.opacity(0.6))
         }

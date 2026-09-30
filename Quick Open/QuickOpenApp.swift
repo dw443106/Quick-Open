@@ -22,6 +22,19 @@ struct QuickOpenApp: App {
         Settings {
             EmptyView()
         }
+        .commands {
+            CommandMenu("工具") {
+                Button("SMB 映射") {
+                    appDelegate.menuOpenSMBMapping()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Button("窗口管理") {
+                    appDelegate.menuOpenManager()
+                }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+            }
+        }
     }
 }
 
@@ -32,10 +45,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private var managerController: WindowManagerController?
     private var settingsController: SettingsWindowController?
+    private var smbMappingController: SMBMappingWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusBar()
+
+        SMBMappingManager.shared.onNeedsAttention = { [weak self] message in
+            self?.showSMBMappingAttention(message)
+        }
+        SMBMappingManager.shared.restoreMappingsAtLogin()
         
         let savedConfigs = loadSavedConfigs()
         if savedConfigs.isEmpty {
@@ -93,6 +112,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let manageItem = NSMenuItem(title: "📋 管理所有窗口", action: #selector(menuOpenManager), keyEquivalent: "m")
         manageItem.target = self
         menu.addItem(manageItem)
+
+        let smbItem = NSMenuItem(title: "🗄️ SMB 映射", action: #selector(menuOpenSMBMapping), keyEquivalent: "s")
+        smbItem.target = self
+        menu.addItem(smbItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -157,6 +180,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
         settingsController = controller
     }
+
+    @objc func menuOpenSMBMapping() {
+        if let existing = smbMappingController {
+            existing.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let controller = SMBMappingWindowController(manager: SMBMappingManager.shared)
+        controller.window?.delegate = self
+        controller.showWindow(nil)
+        smbMappingController = controller
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showSMBMappingAttention(_ message: String) {
+        menuOpenSMBMapping()
+        NSApp.requestUserAttention(.criticalRequest)
+        let alert = NSAlert()
+        alert.messageText = "SMB 映射需要处理"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "打开映射页面")
+        alert.runModal()
+    }
     
     func createNewRiceWindow(with config: RiceWindowConfig) {
         let controller = RiceWindowController(config: config)
@@ -199,6 +247,9 @@ extension AppDelegate: NSWindowDelegate {
         }
         if notification.object as? NSWindow === settingsController?.window {
             settingsController = nil
+        }
+        if notification.object as? NSWindow === smbMappingController?.window {
+            smbMappingController = nil
         }
     }
 }

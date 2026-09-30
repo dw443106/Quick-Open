@@ -96,19 +96,20 @@ final class SMBMappingManager: ObservableObject {
         volume.folders
     }
 
-    func addMapping(sourceURL: URL, volume: SMBMountedVolume, localTargetURL: URL) throws {
+    func addMapping(sourceURL: URL, volume: SMBMountedVolume, localContainerURL: URL) throws {
         let sourcePath = sourceURL.standardizedFileURL.path
         let mountPath = volume.mountURL.standardizedFileURL.path
         guard sourcePath == mountPath || sourcePath.hasPrefix(mountPath + "/") else {
             throw SMBMappingError.invalidSource
         }
 
-        let destinationURL = localTargetURL.standardizedFileURL
+        let normalizedContainerURL = localContainerURL.standardizedFileURL
         guard !mountedVolumes.contains(where: {
-            destinationURL.path == $0.mountPath || destinationURL.path.hasPrefix($0.mountPath + "/")
+            normalizedContainerURL.path == $0.mountPath || normalizedContainerURL.path.hasPrefix($0.mountPath + "/")
         }) else {
             throw SMBMappingError.invalidLocalTarget
         }
+        let destinationURL = normalizedContainerURL.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: true)
         let relativePath = String(sourcePath.dropFirst(mountPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
         if itemExistsWithoutFollowingLink(atPath: destinationURL.path) {
@@ -120,7 +121,7 @@ final class SMBMappingManager: ObservableObject {
                             volumeName: volume.name,
                             relativePath: relativePath,
                             sourcePath: sourcePath,
-                            localContainerPath: destinationURL.deletingLastPathComponent().path,
+                            localContainerPath: normalizedContainerURL.path,
                             destinationPath: destinationURL.path
                         )
                     )
@@ -147,7 +148,7 @@ final class SMBMappingManager: ObservableObject {
                 volumeName: volume.name,
                 relativePath: relativePath,
                 sourcePath: sourcePath,
-                localContainerPath: destinationURL.deletingLastPathComponent().path,
+                localContainerPath: normalizedContainerURL.path,
                 destinationPath: destinationURL.path
             )
         )
@@ -608,7 +609,7 @@ struct SMBMappingView: View {
                 .font(.headline)
 
             if manager.mappings.isEmpty {
-                Text("尚未配置。请从上方选择 NAS 文件夹，再选择一个现有的空文件夹作为最终本地映射位置。")
+                Text("尚未配置。请从上方选择 NAS 文件夹，再选择一个本地文件夹用于存放映射入口。现有内容不会被覆盖。")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(12)
@@ -670,9 +671,9 @@ struct SMBMappingView: View {
 
     private func chooseLocalContainer(for sourceURL: URL, volume: SMBMountedVolume) {
         let panel = NSOpenPanel()
-        panel.title = "选择最终的本地映射文件夹"
-        panel.message = "请选择一个现有的空文件夹作为“\(sourceURL.lastPathComponent)”的本地入口。含有内容的文件夹不会被覆盖。"
-        panel.prompt = "映射到此文件夹"
+        panel.title = "选择本地映射位置"
+        panel.message = "将在所选文件夹内创建“\(sourceURL.lastPathComponent)”映射入口。所选文件夹无需为空，现有内容不会被覆盖。"
+        panel.prompt = "在此处创建映射"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -681,7 +682,7 @@ struct SMBMappingView: View {
 
         guard panel.runModal() == .OK, let localURL = panel.url else { return }
         do {
-            try manager.addMapping(sourceURL: sourceURL, volume: volume, localTargetURL: localURL)
+            try manager.addMapping(sourceURL: sourceURL, volume: volume, localContainerURL: localURL)
         } catch {
             presentedError = error.localizedDescription
         }

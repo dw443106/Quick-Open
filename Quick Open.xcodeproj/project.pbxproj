@@ -10,9 +10,22 @@
 		5B8E2D882FBCA178008AE761 /* Quick Open.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Quick Open.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A1B2C3D4E5F60718293A4B5C /* Exceptions for "Quick Open" folder in "Quick Open" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"JavDB 2026-06-06 17-59-43",
+			);
+			target = 5B8E2D872FBCA178008AE761 /* Quick Open */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5B8E2D8A2FBCA178008AE761 /* Quick Open */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1B2C3D4E5F60718293A4B5C /* Exceptions for "Quick Open" folder in "Quick Open" target */,
+			);
 			path = "Quick Open";
 			sourceTree = "<group>";
 		};

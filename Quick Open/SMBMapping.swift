@@ -465,7 +465,6 @@ struct SMBMappingView: View {
         .frame(minWidth: 680, minHeight: 520)
         .onAppear {
             manager.refresh()
-            expandedVolumes.formUnion(manager.mountedVolumes.map(\.id))
         }
         .alert("SMB 映射", isPresented: Binding(
             get: { presentedError != nil },
@@ -545,6 +544,17 @@ struct SMBMappingView: View {
             }
         )) {
             VStack(spacing: 6) {
+                HStack {
+                    Button {
+                        chooseLocalContainer(for: volume.mountURL, volume: volume)
+                    } label: {
+                        Label("映射整个“\(volume.name)”共享…", systemImage: "externaldrive.badge.plus")
+                    }
+                    .controlSize(.small)
+                    Spacer()
+                }
+                .padding(.bottom, 4)
+
                 if volume.folders.isEmpty {
                     Text("此共享根目录下没有可列出的文件夹")
                         .font(.caption)
@@ -559,7 +569,7 @@ struct SMBMappingView: View {
                             Text(folder.lastPathComponent)
                                 .lineLimit(1)
                             Spacer()
-                            Button("选择本地位置…") {
+                            Button("映射此文件夹…") {
                                 chooseLocalContainer(for: folder, volume: volume)
                             }
                             .controlSize(.small)
